@@ -1,6 +1,6 @@
 {
   "name": "clik-customs-logistics",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "CLIK - Customs and Logistics Solutions Desktop Application (SQLite)",
   "author": "CLIK",
   "main": "electron/main.cjs",
@@ -36,7 +36,7 @@
       {
         "provider": "github",
         "owner": "3000s2",
-        "repo": "blik-app"
+        "repo": "clik-app"
       }
     ]
   },

@@ -1145,11 +1145,13 @@ function BLDetailPage({job:initialJob,onBack}){
 function SettlementPage({onOpenARAP}){
   const[tab,setTab]=useState("AR");
   const[jobs,setJobs]=useState([]);const[invoices,setInvoices]=useState([]);
-  const[loading,setLoading]=useState(false);
+  const[loading,setLoading]=useState(false);const[totalJobCount,setTotalJobCount]=useState(0);
   const[customerList,setCustomerList]=useState([]);const[payeeList,setPayeeList]=useState([]);
-  const[filterEntity,setFilterEntity]=useState("");const[filterStatus,setFilterStatus]=useState("");
+  const[searchEntity,setSearchEntity]=useState("");const dSearchEntity=useDebounce(searchEntity);
+  const[filterStatus,setFilterStatus]=useState("");
   const[createdFrom,setCreatedFrom]=useState(()=>{const d=new Date();return d.toISOString().slice(0,8)+"01";});
   const[createdTo,setCreatedTo]=useState(()=>new Date().toISOString().slice(0,10));
+  const[sPage,setSPage]=useState(1);const S_PAGE_SIZE=200;
   const[selected,setSelected]=useState(new Set());
   // Invoice generation
   const[showInvModal,setShowInvModal]=useState(false);
@@ -1173,10 +1175,13 @@ function SettlementPage({onOpenARAP}){
     setCustomerList([...DB.customers]);setPayeeList([...DB.payees]);
     setLoading(true);
     try{
-      const search=filterEntity||"";
-      const allJobs=await window.db.jobs.list({limit:9999,offset:0,search,createdFrom,createdTo});
+      const search=dSearchEntity||"";
+      const offset=(sPage-1)*S_PAGE_SIZE;
+      const allJobs=await window.db.jobs.list({limit:S_PAGE_SIZE,offset,search,createdFrom,createdTo});
+      const count=await window.db.jobs.count({search,createdFrom,createdTo});
       let filtered=allJobs||[];
-      if(tab==="AR"&&filterEntity)filtered=filtered.filter(j=>j.customer===filterEntity);
+      if(tab==="AR"&&dSearchEntity)filtered=filtered.filter(j=>j.customer.toLowerCase().includes(dSearchEntity.toLowerCase()));
+      setTotalJobCount(count||0);
       const allInv=await window.db.invoices.list({limit:9999,offset:0});
       if(tab==="AR"){
         const custSet=new Set(filtered.map(j=>j.customer));
@@ -1188,7 +1193,8 @@ function SettlementPage({onOpenARAP}){
     }catch(e){await showAlert("Load error: "+e.message);}
     setLoading(false);
   };
-  useEffect(()=>{load();},[filterEntity,tab,createdFrom,createdTo]);
+  useEffect(()=>{setSPage(1);},[dSearchEntity,tab,createdFrom,createdTo]);
+  useEffect(()=>{load();},[dSearchEntity,tab,createdFrom,createdTo,sPage]);
 
   // ── Extract all AR lines across all jobs ──
   const arLines=useMemo(()=>{
@@ -1201,7 +1207,7 @@ function SettlementPage({onOpenARAP}){
           const amt=M.round(val);if(amt<=0)continue;
           const cur=charges[key+"_cur"]||"CAD";const notes=charges[key+"_note"]||"";
           const disb=!!charges[key+"_disb"];
-          lines.push({jobId:job.id,customer:job.customer,province:job.province||"Ontario",createdAt:job.createdAt,code:key,label:key,amount:amt,currency:cur,notes,disb,type});
+          lines.push({jobId:job.id,bl:job.bl||job.mbl||"",customer:job.customer,province:job.province||"Ontario",createdAt:job.createdAt,code:key,label:key,amount:amt,currency:cur,notes,disb,type});
         }
       };
       if(job.cbEnabled)proc(job.cb,"CB");
@@ -1255,7 +1261,7 @@ function SettlementPage({onOpenARAP}){
           if(paid>=amt){status="REMITTED";color=C.green;}
           else if(paid>0){status="P REMITTED";color=C.orange;}
           else if(slipped){status="SLIPPED";color=C.blue;}
-          lines.push({jobId:job.id,customer:job.customer,code:key,label:key,amount:amt,currency:cur,payee,payments,dueDate,slipped,status,color,type,paid});
+          lines.push({jobId:job.id,bl:job.bl||job.mbl||"",customer:job.customer,code:key,label:key,amount:amt,currency:cur,payee,payments,dueDate,slipped,status,color,type,paid});
         }
         // Manual AP
         for(const l of (charges._manualAP||[])){
@@ -1266,7 +1272,7 @@ function SettlementPage({onOpenARAP}){
           if(paid>=amt){status="REMITTED";color=C.green;}
           else if(paid>0){status="P REMITTED";color=C.orange;}
           else if(slipped){status="SLIPPED";color=C.blue;}
-          lines.push({jobId:job.id,customer:job.customer,code:l.code,label:l.label||l.code,amount:amt,currency:l.currency||"CAD",payee:l.payee||"",payments,dueDate:l.dueDate||"",slipped,status,color,type:"AP",paid});
+          lines.push({jobId:job.id,bl:job.bl||job.mbl||"",customer:job.customer,code:l.code,label:l.label||l.code,amount:amt,currency:l.currency||"CAD",payee:l.payee||"",payments,dueDate:l.dueDate||"",slipped,status,color,type:"AP",paid});
         }
       };
       if(job.cbEnabled)proc(job.cb,"CB");
@@ -1277,12 +1283,12 @@ function SettlementPage({onOpenARAP}){
 
   // ── Filtered lines ──
   const filteredAR=arWithInvoice.filter(l=>{
-    if(filterEntity&&l.customer!==filterEntity)return false;
+    if(dSearchEntity&&!l.customer.toLowerCase().includes(dSearchEntity.toLowerCase()))return false;
     if(filterStatus&&l.status!==filterStatus)return false;
     return true;
   });
   const filteredAP=apLines.filter(l=>{
-    if(filterEntity&&l.payee!==filterEntity)return false;
+    if(dSearchEntity&&!l.payee.toLowerCase().includes(dSearchEntity.toLowerCase()))return false;
     if(filterStatus&&l.status!==filterStatus)return false;
     return true;
   });
@@ -1545,9 +1551,9 @@ function SettlementPage({onOpenARAP}){
     <div style={{display:"flex",gap:12,marginBottom:16,alignItems:"flex-end",flexWrap:"wrap"}}>
       <div><label style={S.label}>From</label><input type="date" value={createdFrom} onChange={e=>setCreatedFrom(e.target.value)} style={{fontFamily:F.mono,fontSize:12,padding:"8px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,outline:"none"}}/></div>
       <div><label style={S.label}>To</label><input type="date" value={createdTo} onChange={e=>setCreatedTo(e.target.value)} style={{fontFamily:F.mono,fontSize:12,padding:"8px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,outline:"none"}}/></div>
-      <div><label style={S.label}>{tab==="AR"?"Customer":"Payee"}</label><select value={filterEntity} onChange={e=>setFilterEntity(e.target.value)} style={{fontFamily:F.mono,fontSize:12,padding:"8px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,outline:"none",minWidth:180}}><option value="">All</option>{(tab==="AR"?customerList:payeeList).map(c=><option key={c.id||c.name} value={c.name}>{c.name}</option>)}</select></div>
+      <div><label style={S.label}>{tab==="AR"?"Customer":"Payee"}</label><input value={searchEntity} onChange={e=>{setSearchEntity(e.target.value);}} placeholder={`Search ${tab==="AR"?"customer":"payee"}...`} style={{fontFamily:F.mono,fontSize:12,padding:"8px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,outline:"none",minWidth:180}}/></div>
       <div><label style={S.label}>Status</label><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{fontFamily:F.mono,fontSize:12,padding:"8px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,outline:"none",minWidth:120}}><option value="">All</option><option>ACCRUED</option><option>SLIPPED</option><option>P REMITTED</option><option>REMITTED</option></select></div>
-      {(filterEntity||filterStatus)&&<Button variant="ghost" size="sm" onClick={()=>{setFilterEntity("");setFilterStatus("");}}>Clear</Button>}
+      {(searchEntity||filterStatus)&&<Button variant="ghost" size="sm" onClick={()=>{setSearchEntity("");setFilterStatus("");}}>Clear</Button>}
       {tab==="AR"&&canGenerate&&<Button size="sm" onClick={()=>{setInvProvince(selectedARLines[0].province||"Ontario");setShowInvModal(true);}}>Generate Invoice ({selectedARLines.length} lines)</Button>}
       {tab==="AR"&&canConsolidate&&<Button size="sm" onClick={consolidateInvoices} disabled={saving}>{saving?"Consolidating...":"Consolidate "+selectedConsolidateInvs.length+" Invoices"}</Button>}
     </div>
@@ -1572,6 +1578,7 @@ function SettlementPage({onOpenARAP}){
             <div key={jobId} style={{marginBottom:10,borderLeft:`3px solid ${C.accent}30`,paddingLeft:12}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                 <IdLink id={jobId} onClick={()=>{const j=jobs.find(x=>x.id===jobId);if(j&&onOpenARAP)onOpenARAP(j);}}/>
+                {jobLines[0]?.bl&&<span style={{fontFamily:F.mono,fontSize:10,color:C.textDim}}>{jobLines[0].bl}</span>}
                 <span style={{fontSize:10,color:C.textMuted}}>{jobLines.length} line{jobLines.length>1?"s":""}</span>
                 <span style={{fontFamily:F.mono,fontSize:10,color:C.text,fontWeight:600}}>{fmt(jobLines.reduce((s,l)=>M.sum(s,l.amount),0))}</span>
               </div>
@@ -1634,6 +1641,7 @@ function SettlementPage({onOpenARAP}){
             <div key={jobId} style={{marginBottom:10,borderLeft:`3px solid ${C.orange}30`,paddingLeft:12}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                 <IdLink id={jobId} onClick={()=>{const j=jobs.find(x=>x.id===jobId);if(j&&onOpenARAP)onOpenARAP(j);}}/>
+                {jobLines[0]?.bl&&<span style={{fontFamily:F.mono,fontSize:10,color:C.textDim}}>{jobLines[0].bl}</span>}
                 <span style={{fontSize:10,color:C.textMuted}}>{jobLines.length} line{jobLines.length>1?"s":""}</span>
                 <span style={{fontFamily:F.mono,fontSize:10,color:C.text,fontWeight:600}}>{fmt(jobLines.reduce((s,l)=>M.sum(s,l.amount),0))}</span>
               </div>
@@ -1653,6 +1661,16 @@ function SettlementPage({onOpenARAP}){
         </div>);
       })
     )}
+
+    {/* Pagination */}
+    {totalJobCount>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:16,marginBottom:8}}>
+      <span style={{fontSize:11,color:C.textMuted}}>Showing {Math.min(jobs.length,S_PAGE_SIZE)} of {totalJobCount} BLs</span>
+      {totalJobCount>S_PAGE_SIZE&&<div style={{display:"flex",gap:4}}>
+        <Button variant="ghost" size="sm" disabled={sPage<=1} onClick={()=>setSPage(p=>p-1)}>← Prev</Button>
+        <span style={{fontSize:11,color:C.text,padding:"6px 10px"}}>{sPage} / {Math.ceil(totalJobCount/S_PAGE_SIZE)}</span>
+        <Button variant="ghost" size="sm" disabled={sPage>=Math.ceil(totalJobCount/S_PAGE_SIZE)} onClick={()=>setSPage(p=>p+1)}>Next →</Button>
+      </div>}
+    </div>}
 
     {/* ── Invoice View Modal ── */}
     {viewInvoice&&(()=>{
