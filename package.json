@@ -1,0 +1,61 @@
+{
+  "name": "clik-customs-logistics",
+  "version": "1.6.0",
+  "description": "CLIK - Customs and Logistics Solutions Desktop Application (SQLite)",
+  "author": "CLIK",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "electron:dev": "concurrently \"vite --port 5174\" \"wait-on http://localhost:5174 && cross-env DEV_PORT=5174 electron .\"",
+    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build:mac": "vite build && electron-builder --mac",
+    "electron:build:linux": "vite build && electron-builder --linux",
+    "electron:publish:win": "vite build && electron-builder --win --publish always",
+    "electron:publish:mac": "vite build && electron-builder --mac --publish always",
+    "test": "node tests/backend.test.cjs"
+  },
+  "build": {
+    "appId": "com.clik.customs-logistics",
+    "productName": "CLIK",
+    "directories": { "output": "release" },
+    "files": [ "dist", "electron", "node_modules/better-sqlite3/**/*" ],
+    "extraResources": [],
+    "asarUnpack": [ "node_modules/better-sqlite3/**/*" ],
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"] },
+    "linux": { "target": ["AppImage"] },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "3000s2",
+        "repo": "clik-app"
+      }
+    ]
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "electron-updater": "^6.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0",
+    "electron-rebuild": "^3.2.9",
+    "vite": "^5.0.0",
+    "wait-on": "^7.2.0"
+  }
+}
